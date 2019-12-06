@@ -25,7 +25,7 @@ Use that uuids to make achievements in our billing system
 
 Check Main.cs to see, how it works.
 
-`
+```
 using UnityEngine;
 
 public class Main : MonoBehaviour
@@ -59,7 +59,7 @@ public class Main : MonoBehaviour
         Debug.Log("Failed to Achieve: " + error);
     }
 }
-`
+```
 
 # Errors
 
