@@ -1,10 +1,18 @@
-﻿using System.Collections;
+﻿using System;
+using System.Collections;
 using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.Networking;
 
 public class UGS : MonoBehaviour
 {
+    [System.Serializable]
+    public class UGSServertime
+    {
+        public string now;
+        public int tik;
+    }
+
     [System.Serializable]
     public class UGSContainerMaintenance
     {
@@ -61,6 +69,13 @@ public class UGS : MonoBehaviour
 
     public string USERNAME;
     public string TOKEN;
+    public DateTime ServerTime;
+
+    private int ServerTimeTik;
+    private DateTime ServertimeRequestTime;
+    private DateTime MaintenanceStart;
+    private DateTime MaintenanceEnd;
+
 
     private string _password;
 
@@ -68,11 +83,10 @@ public class UGS : MonoBehaviour
 
     public void Login(string iUsername, string iPassword, OnLoginSuccess iLoginSuccess, OnLoginFailed iLoginFailed)
     {
-        _loginSuccess = iLoginSuccess;
-        _loginFailed = iLoginFailed;
         USERNAME = iUsername;
         TOKEN = null;
-        _password = iPassword;
+        _loginSuccess = iLoginSuccess;
+        _loginFailed = iLoginFailed;
         _password = iPassword;
         if (_maintenanceChecked)
         {
@@ -86,6 +100,7 @@ public class UGS : MonoBehaviour
 
     public void Logout()
     {
+        USERNAME = null;
         TOKEN = null;
     }
 
@@ -97,12 +112,19 @@ public class UGS : MonoBehaviour
         }
         else
         {
-            _achieveSuccess = iAchieveSuccess;
-            _achieveFailed = iAchieveFailed;
-            WWWForm form = new WWWForm();
-            form.AddField("uuid", uuid);
-            form.AddField("amount", amount);
-            StartCoroutine(PostRequest("https://ugs3experiment.universinet.org/scripts/bd14b1a4d7744a92af73bb8b70c2cf07/run/", form, AchieveDone));
+            if (isMaintenanceGoing)
+            {
+                _achieveFailed?.Invoke("maintenance_going");
+            }
+            else
+            {
+                _achieveSuccess = iAchieveSuccess;
+                _achieveFailed = iAchieveFailed;
+                WWWForm form = new WWWForm();
+                form.AddField("uuid", uuid);
+                form.AddField("amount", amount);
+                StartCoroutine(PostRequest("https://ugs3experiment.universinet.org/scripts/bd14b1a4d7744a92af73bb8b70c2cf07/run/", form, AchieveDone));
+            }
         }
     }
 
@@ -130,7 +152,7 @@ public class UGS : MonoBehaviour
     private void ObtainToken(DownloadHandler response)
     {
         UGSResponseToken tr = JsonUtility.FromJson<UGSResponseToken>(response.text);
-        Debug.Log("Token Obtained: " + tr.token + ", " + tr.is_staff);
+        // Debug.Log("Token Obtained: " + tr.token + ", " + tr.is_staff);
         if (tr.is_staff)
         {
             _loginFailed?.Invoke("unable_to_login_as_staff");
@@ -144,16 +166,63 @@ public class UGS : MonoBehaviour
 
     private void CheckMaintenance()
     {
+        ServertimeRequestTime = DateTime.Now;
+        StartCoroutine(GetRequest("https://ugs3experiment.universinet.org/servertime/", ServertimeLoaded));
+    }
+
+    private void ServertimeLoaded(DownloadHandler response)
+    {
+        UGSServertime ServertimeObj = JsonUtility.FromJson<UGSServertime>(response.text);
+        ServerTimeTik = ServertimeObj.tik;
         StartCoroutine(GetRequest("https://ugs3experiment.universinet.org/containers/47103b5babcc4ed5b9c2b73bb704bd86/", MaintenanceLoaded));
+    }
+
+    private void UpdateServertime()
+    {
+        TimeSpan sinseRequest = DateTime.Now - ServertimeRequestTime;
+        ServerTime = UnixTimeStampToDateTime(ServerTimeTik) + sinseRequest;
+    }
+    
+    private bool isMaintenanceGoing
+    {
+        get
+        {
+            UpdateServertime();
+            if (ServerTime > MaintenanceStart && ServerTime < MaintenanceEnd)
+            {
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
     }
 
     private void MaintenanceLoaded(DownloadHandler response)
     {
-        Debug.Log("Response: " + response.text);
         UGSContainerMaintenance mc = JsonUtility.FromJson<UGSContainerMaintenance>(response.text);
-        Debug.Log("Maintenance loaded. Duration: " + mc.payload.value.duration + ", StartDate: " + mc.payload.value.start_date);
-        _maintenanceChecked = true;
-        DoLogin();
+        MaintenanceStart = UnixTimeStampToDateTime(mc.payload.value.start_date);
+        MaintenanceEnd = MaintenanceStart.AddSeconds(mc.payload.value.duration);
+        // Debug.Log("Maintenance loaded. Duration: " + mc.payload.value.duration + ", StartDate: " + MaintenanceStart + ", EndDate: " + MaintenanceEnd);
+        if (isMaintenanceGoing)
+        {
+            if (_loginFailed != null)
+            {
+                _loginFailed("maintenance_going");
+                _loginFailed = null;
+            }
+            if (_achieveFailed != null)
+            {
+                _achieveFailed("maintenance_going");
+                _achieveFailed = null;
+            }
+        }
+        else
+        {
+            _maintenanceChecked = true;
+            DoLogin();
+        }
     }
 
     private IEnumerator GetRequest(string uri, WebRequestCallback callback)
@@ -269,7 +338,7 @@ public class UGS : MonoBehaviour
                 int secondsToReload = System.Convert.ToInt32(System.Math.Ceiling(System.Convert.ToDecimal(match.Groups[1].Value)));
                 if (secondsToReload > 0)
                 {
-                    Debug.Log("Reloading After Throttling in " + secondsToReload + " seconds");
+                    // Debug.Log("Reloading After Throttling in " + secondsToReload + " seconds");
                     StartCoroutine(ReloginAfterThrottling(secondsToReload));
                 }
             }
@@ -297,7 +366,7 @@ public class UGS : MonoBehaviour
             case "Request was throttled. Expected available in 1.0 second.":
                 return "rest_throttled";
             case "Unable to login with provided credentials.":
-                return "rest_wrong_credentials";
+                return "wrong_credentials";
             case "This username is already taken. Please choose another.":
                 return "rest_username_exists";
             case "Not found.":
@@ -317,24 +386,24 @@ public class UGS : MonoBehaviour
             case "You do not have permission to perform this action.":
                 return "rest_no_permission";
             case "Usernames can only contain letters, digits and @/./+/-/_.":
-                return "rest_wrong_username";
+                return "wrong_username";
             case "Request failed with status code 500.":
                 return "rest_500";
             case "This field may not be blank.":
-                return "form_username_too_short";
+                return "username_too_short";
             case "Request failed with status code 400":
                 return "rest_500";
             case "User doesn\"t exist.":
-                return "rest_user_not_exists";
+                return "user_not_exists";
             case "Error decoding signature.":
             case "Signature has expired.":
                 if (error == "Error decoding signature.")
                 {
-                    error = "rest_signature_decoding";
+                    error = "error_decoding_signature";
                 }
                 else
                 {
-                    error = "rest_token_expired";
+                    error = "token_expired";
                 }
                 return error;
             case "Network Error":
@@ -342,5 +411,28 @@ public class UGS : MonoBehaviour
             default:
                 return error;
         }
+    }
+
+    public static DateTime UnixTimeStampToDateTime(int unixTimeStamp, DateTimeKind dateTimeType = DateTimeKind.Unspecified)
+    {
+        // Unix timestamp is seconds sinse epoch
+        DateTime dtDateTime = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc);
+        switch (dateTimeType)
+        {
+            case DateTimeKind.Local:
+                dtDateTime = dtDateTime.AddSeconds(unixTimeStamp).ToLocalTime();
+                break;
+            case DateTimeKind.Utc:
+                dtDateTime = dtDateTime.AddSeconds(unixTimeStamp).ToUniversalTime();
+                break;
+            case DateTimeKind.Unspecified:
+                dtDateTime = dtDateTime.AddSeconds(unixTimeStamp);
+                break;
+        }
+        return dtDateTime;
+    }
+    public static int DateTimeToUnixTimeStamp(DateTime date)
+    {
+        return (int)(date - new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)).TotalSeconds;
     }
 }
