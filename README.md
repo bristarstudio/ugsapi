@@ -10,7 +10,7 @@ UGS API for external Unity Developers
 
 # Methods
 
-Login(string username, string password "passwd123", OnLoginSuccess, OnLoginFailed)
+Login(string username, string password, OnLoginSuccess, OnLoginFailed)
 
 Achieve(string achieveUUID, int amount, OnAchieveSuccess, OnAchieveFailed);
 
