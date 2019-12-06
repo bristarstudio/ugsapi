@@ -60,3 +60,38 @@ public class Main : MonoBehaviour
     }
 }
 `
+
+# Errors
+
+**OnLoginFailed** and **OnAchieveFailed** always returns one of error string below.
+
+**wrong_credentials**
+Unable to login with provided credentials.
+
+**maintenance_going**
+Maintenance is going
+
+**rest_throttled**
+Request was throttled. Expected available in 1.0 second.
+
+**rest_500**
+Request failed with status code 500.
+
+**user_not_exists**
+User doesn't exist.
+
+**wrong_username**
+Usernames can only contain letters, digits and @/./+/-/_.
+
+**username_too_short**
+Provided username is too short
+
+**token_expired**
+Signature has expired.
+
+**error_decoding_signature**
+Error decoding signature.
+
+**network_error**
+Network Error
+
